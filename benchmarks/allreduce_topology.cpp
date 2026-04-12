@@ -87,7 +87,7 @@ void print_allreduces(int max_p,
     {
         int s = 1 << i;
 
-        tmpbuf = (T *)malloc(s * num_procs * ppn * sizeof(T));
+        T* tmpbuf = (T *)malloc(s * num_procs * ppn * sizeof(T));
 
         if (rank == 0)
             printf("Size %d\n", s);
