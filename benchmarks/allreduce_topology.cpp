@@ -77,19 +77,14 @@ void print_allreduces(int max_p,
     MPI_Comm_rank(comm->local_comm, &local_rank);
     MPI_Comm_size(comm->local_comm, &ppn);
 
-    int my_node, n_nodes;
-    MPI_Comm_rank(comm->group_comm, &my_node);
+    int n_nodes;
     MPI_Comm_size(comm->group_comm, &n_nodes);
 
     int max_s = 1 << max_p;
 
     double time;
-
-    T *tmpbuf = NULL;
-
     for (int i = 0; i < max_p; i++)
     {
-        // int i = 0;
         int s = 1 << i;
 
         tmpbuf = (T *)malloc(s * num_procs * ppn * sizeof(T));
@@ -99,7 +94,6 @@ void print_allreduces(int max_p,
 
         // Standard PMPI Allreduce (system MPI)
         time = test_collective(PMPI_Allreduce, true, sendbuf, recvbuf, s, datatype, op, comm->global_comm);
-
         if (rank == 0)
             printf("PMPI: %e\n", time);
 
@@ -153,7 +147,6 @@ void print_allreduces(int max_p,
             if (comm->leader_comm != MPI_COMM_NULL)
                 MPIX_Comm_leader_free(comm);
 
-
             MPIX_Comm_leader_init(comm, procs_per_leader);
 
             int leader_rank, leader_size;
@@ -164,6 +157,8 @@ void print_allreduces(int max_p,
             MPI_Comm_rank(comm->leader_group_comm, &my_leader);
             MPI_Comm_size(comm->leader_group_comm, &num_leaders);
             int leaders_per_node = num_leaders / n_nodes;
+            if (rank == 0)
+                printf("Running Multileader/Locality-Aware Tests with %d Processes Per Leader, %d Leaders Per Node\n", procs_per_leader, leaders_per_node);
 
             int leader_local_size;
             MPI_Comm_size(comm->leader_local_comm, &leader_local_size);
@@ -193,17 +188,17 @@ void print_allreduces(int max_p,
 
             // Locality - Aware Allreduce Timings 1. Full locality - aware allreduce time = test_collective(allreduce_locality_aware, true, sendbuf, recvbuf, s, datatype, op, *comm);
             if (rank == 0)
-                printf("Locality-Aware (N Groups %d) Allreduce: %e\n", leaders_per_node, time);
+                printf("Locality-Aware (N leaders %d) Allreduce: %e\n", leaders_per_node, time);
 
             // 2. Intranode allreduce
             time = test_collective(MPI_Allreduce, true, sendbuf, tmpbuf, s, datatype, op, comm->leader_group_comm);
             if (rank == 0)
-                printf("Locality-Aware (N Groups %d) Internal: Intra-node allreduce: %e\n", leaders_per_node, time);
+                printf("Locality-Aware (N leaders %d) Internal: Intra-node allreduce: %e\n", leaders_per_node, time);
 
             // 3. Internode allreduce
             time = test_collective(MPI_Allreduce, true, tmpbuf, recvbuf, s, datatype, op, comm->leader_comm);
             if (rank == 0)
-                printf("Locality-Aware (N Groups %d) Internal: Inter-node allreduce: %e\n", leaders_per_node, time);
+                printf("Locality-Aware (N leaders %d) Internal: Inter-node allreduce: %e\n", leaders_per_node, time);
 
             free(tmpbuf);
 
