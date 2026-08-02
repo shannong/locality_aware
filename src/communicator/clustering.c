@@ -322,18 +322,24 @@ void balancedLloydClustering(double* adjacencyMatrix,
 
     int* clusterSizes = (int*) malloc(numClusters * sizeof(int));
     *clusterCenters = (int*) malloc(numClusters * sizeof(int));
+    bool* chosenCenters = (bool*) calloc(numProcs, sizeof(bool));
     srand(time(NULL));
     for (int a = 0; a < numClusters; a++)
     {
-        clusterCenters[0][a] = rand() % numProcs;
+        int nodeIndex;
+        do {
+            nodeIndex = rand() % numProcs;
+        } while (chosenCenters[nodeIndex]);
+        chosenCenters[nodeIndex] = true;
+        clusterCenters[0][a] = nodeIndex;
         clusterSizes[a] = 1;
-        int nodeIndex = clusterCenters[0][a];
         printf("Cluster %d center: %d\n", a, nodeIndex);
         shortestPathToCenter[nodeIndex] = 0;
         clusterMembership[0][nodeIndex] = a;
         predecessorInCluster[nodeIndex] = nodeIndex;
         numAsPredecessor[nodeIndex] = 1;
     }
+    free(chosenCenters);
 
     int iteration = 0;
     bool clustersChanged = false;
