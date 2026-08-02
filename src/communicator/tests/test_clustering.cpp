@@ -119,6 +119,8 @@ int main()
         int center = clusterCenters[i];
         shortestPathToCenter[center] = 0;
         clusterMembership[center] = i;
+        predecessorInCluster[center] = center;
+        numAsPredecessor[center] = 1;
     }
 
     std::vector<int> expectedMembership = {0, 0, 1, 0, 1, 1};
@@ -222,8 +224,8 @@ int main()
 
     numErrors += testArrays(clusterCenters, expectedClusterCenters, 2);
 
-    int* newClusterCenters = (int*) malloc(numClusters * sizeof(int));
-    int* newClusterMembership = (int*) malloc(numProcs * sizeof(int));
+    int* newClusterCenters;// = (int*) malloc(numClusters * sizeof(int));
+    int* newClusterMembership;// = (int*) malloc(numProcs * sizeof(int));
     balancedLloydClustering(adjacencyMatrix,
                             &newClusterCenters,
                             &newClusterMembership,

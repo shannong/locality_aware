@@ -63,6 +63,8 @@ double* network_discovery(MPIX_Comm* xcomm, int size, int tag, int num_iteration
         times[i] = MPI_Wtime() - t0 / (2. * num_iterations);
     }
 
+    free(send_buffer);
+    free(recv_buffer);
     return times;
 }
 
@@ -147,7 +149,7 @@ bool balancedBellmanFord(double* adjacencyMatrix,
         t++;
     } 
     while (t < maxIterations && !done);
-    printf("Num Iterations: %d\n", t);
+    printf("Num Balanced Bellman FordIterations: %d\n", t);
     return changed;
 }
 
@@ -170,6 +172,7 @@ void clusteredFloydWarshall(double* adjacencyMatrix,
             for (int j = 0; j < clusterSize; j++) 
             {
                 int nodeJ = cluster[j];
+                printf("Node i: %d, Node j: %d\n", nodeI, nodeJ);
                 shortestPathDistances[nodeI * numProcs + nodeJ] = INFINITY;
                 predecessors[nodeI * numProcs + nodeJ] = -1;
                 if (adjacencyMatrix[i * numProcs + j] > 0) 
@@ -291,6 +294,8 @@ bool centerNodes(double* adjacencyMatrix,
         }
     }
     
+    free(sumSquaredDists);
+
     return changed;
 }
 
@@ -321,7 +326,9 @@ void balancedLloydClustering(double* adjacencyMatrix,
     for (int a = 0; a < numClusters; a++)
     {
         clusterCenters[0][a] = rand() % numProcs;
+        clusterSizes[a] = 1;
         int nodeIndex = clusterCenters[0][a];
+        printf("Cluster %d center: %d\n", a, nodeIndex);
         shortestPathToCenter[nodeIndex] = 0;
         clusterMembership[0][nodeIndex] = a;
         predecessorInCluster[nodeIndex] = nodeIndex;
@@ -329,63 +336,100 @@ void balancedLloydClustering(double* adjacencyMatrix,
     }
 
     int iteration = 0;
-    bool changed = true;
+    bool clustersChanged = false;
+    bool centerNodesChanged = false;
     do 
     {
         printf("Iteration: %d\n", iteration);
-        changed = balancedBellmanFord(adjacencyMatrix, 
-                                      *clusterMembership, 
-                                      *clusterCenters, 
-                                      shortestPathToCenter,
-                                      predecessorInCluster,
-                                      numAsPredecessor, 
-                                      clusterSizes,
-                                      numProcs,
-                                      numClusters,
-                                      maxIterations);
+        clustersChanged = balancedBellmanFord(adjacencyMatrix, 
+                                                  *clusterMembership, 
+                                                  *clusterCenters, 
+                                                  shortestPathToCenter,
+                                                  predecessorInCluster,
+                                                  numAsPredecessor, 
+                                                  clusterSizes,
+                                                  numProcs,
+                                                  numClusters,
+                                                  maxIterations);
+
+        int* positionInCluster = (int*) calloc(numClusters, sizeof(int));
+        for (int i = 0; i < numProcs; i++)
+        {
+            int cluster = clusterMembership[0][i];
+            if (cluster < 0 || cluster >= numClusters) {
+                continue;
+            }
+            positionInCluster[cluster]++;
+        }
 
         int** clusters = (int**) malloc(numClusters * sizeof(int*));
-        int positionInCluster[numClusters];
         for (int a = 0; a < numClusters; a++)
         {
-            clusters[a] = (int*) malloc(clusterSizes[a] * sizeof(int));
+            clusterSizes[a] = positionInCluster[a];
+            clusters[a] = clusterSizes[a] > 0 ? (int*) malloc(clusterSizes[a] * sizeof(int)) : NULL;
             positionInCluster[a] = 0;
         }
 
         for (int i = 0; i < numProcs; i++)
         {
             int cluster = clusterMembership[0][i];
-            // printf("i: %d, cluster: %d, positionInCluster: %d\n", i, cluster, positionInCluster[cluster]);
-            // clusters[cluster][positionInCluster[cluster]] = i;
-            // positionInCluster[cluster]++;
+            if (cluster < 0 || cluster >= numClusters) {
+                continue;
+            }
+            clusters[cluster][positionInCluster[cluster]++] = i;
         }
 
-        // printf("Calling clustered Floyd Warhsall\n");
-        // clusteredFloydWarshall(adjacencyMatrix, 
-        //                        *clusterMembership, 
-        //                        clusterSizes,
-        //                        clusters,
-        //                        numClusters,
-        //                        shortestPathToCenter,
-        //                        predecessorInCluster,
-        //                        numProcs);
+        free(positionInCluster);
 
-        // printf("Center nodes\n");
-        // changed |= centerNodes(adjacencyMatrix, 
-        //                        numProcs,
-        //                        *clusterMembership,
-        //                        numClusters,
-        //                        *clusterCenters,
-        //                        shortestPathToCenter,
-        //                        predecessorInCluster,
-        //                        numAsPredecessor,
-        //                        shortestPathToCenter,
-        //                        predecessorInCluster,
-        //                        clusters,
-        //                        clusterSizes);
+        double* shortestPathDistances = (double*) malloc(numProcs * numProcs * sizeof(double));
+        int* predecessors = (int*) malloc(numProcs * numProcs * sizeof(int));
+        for (int i = 0; i < numProcs * numProcs; i++) {
+            shortestPathDistances[i] = INFINITY;
+            predecessors[i] = -1;
+        }
 
+        printf("Calling clustered Floyd Warshall\n");
+        clusteredFloydWarshall(adjacencyMatrix, 
+                               *clusterMembership, 
+                               clusterSizes,
+                               clusters,
+                               numClusters,
+                               shortestPathDistances,
+                               predecessors,
+                               numProcs);
+
+        printf("Center nodes\n");
+        centerNodesChanged = centerNodes(adjacencyMatrix, 
+                                              numProcs,
+                                              *clusterMembership,
+                                              numClusters,
+                                              *clusterCenters,
+                                              shortestPathToCenter,
+                                              predecessorInCluster,
+                                              numAsPredecessor,
+                                              shortestPathDistances,
+                                              predecessors,
+                                              clusters,
+                                              clusterSizes);
+
+        free(shortestPathDistances);
+        free(predecessors);
+
+
+        for (int i = 0; i < numClusters; i++)
+        {
+            free(clusters[i]);
+        }
+        
+        free(clusters);
         iteration++;
-    } while (iteration < maxIterations && changed);
+        printf("Clusters changed? %d\nCenter Nodes Changed? %d\n", clustersChanged, centerNodesChanged);
+    } while (iteration < maxIterations && (clustersChanged || centerNodesChanged));
+
+    free(shortestPathToCenter);
+    free(predecessorInCluster);
+    free(numAsPredecessor);
+    free(clusterSizes);
 }
 
 /////////////////////////////////////////////////////////
