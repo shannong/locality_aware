@@ -155,7 +155,7 @@ double pingpong(float* buffer, int proc, int tag, int n_iter)
         for (int i = 0; i < n_iter; i++)
         {
             MPI_Send(buffer, 1, MPI_FLOAT, proc, tag, MPI_COMM_WORLD);
-            MPI_RECV(buffer, 1, MPI_FLOAT, proc, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(buffer, 1, MPI_FLOAT, proc, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
     }
     else
@@ -163,7 +163,7 @@ double pingpong(float* buffer, int proc, int tag, int n_iter)
         for (int i = 0; i < n_iter; i++)
         {
             MPI_Recv(buffer, 1, MPI_FLOAT, proc, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Send(buffer, 1, MPI_FLOAT, proc, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Send(buffer, 1, MPI_FLOAT, proc, tag, MPI_COMM_WORLD);
         }
     }
 
@@ -226,7 +226,7 @@ int main(int argc, char* argv[])
         if (proc < num_procs)
         {
             double t0 = pingpong(&buf, proc, tag, 1);
-            double time = pingpong(&buf, proc, tag, n_iter):
+            double time = pingpong(&buf, proc, tag, n_iter);
             times[proc] = time;
         }
 
