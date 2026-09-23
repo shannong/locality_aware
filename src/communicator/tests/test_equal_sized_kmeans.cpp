@@ -34,7 +34,7 @@ double* calculateCostMatrix(int numClusters, int* centers, int* procsPerCluster,
     return costMatrix;
 }
 
-void hungarian(const double* costMatrix, int numProcs, int* rowAssignments, int* colAssignments)
+void hungarian(const double* costMatrix, int numProcs, int* colAssignments)
 {
     double rowPotentials[numProcs]; // indexed by rows
     double colPotentials[numProcs]; // indexed by cols
@@ -45,7 +45,6 @@ void hungarian(const double* costMatrix, int numProcs, int* rowAssignments, int*
 
     for (int i = 0; i < numProcs; i++)
     {
-        rowAssignments[i] = -1;
         rowPotentials[i] = 0.0;
         colAssignments[i] = -1;
         colPotentials[i] = 0.0;
@@ -120,9 +119,99 @@ void hungarian(const double* costMatrix, int numProcs, int* rowAssignments, int*
             int previousCol = predecessor[targetCol];
             int matchedRow = previousCol == -1 ? rootRow : colAssignments[previousCol];
             colAssignments[targetCol] = matchedRow;
-            rowAssignments[matchedRow] = targetCol;
             targetCol = previousCol;
         }
+    }
+}
+
+std::vector<int> initialize(int numNodes, int numSockets, int numProcs)
+{
+    int numCenters = numNodes * numSockets;
+    int clusterSize = numProcs / numCenters;
+    std::vector<int> centers;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int>(0, numCenters);
+    while (centers.size() < numCenters)
+    {
+        std::vector<double> distancesSquared;
+        for (int i = 0; i < numProcs; i++)
+        {
+            double minDistance = adjacencyMatrix.at(i * numProcs + centers.at(0));
+            for (int j = 1; j < centers.size(); j++)
+            {
+                double distance = adjacencyMatrix.at(i * numProcs + centers.at(j));
+                if (distance < minDistance)
+                {
+                    minDistance = distance;
+                }
+            }
+
+            distancesSquared.push_back(minDistance * minDistance);
+        }
+
+        double total = std::accumulate(distancesSquared.begin(), distancesSquared.end(), 0.0);
+        std::random_device totalRandom;
+        std::mt19937 totalGen(totalRandom());
+        std::uniform_real_distribution<double> totalDistribution(0, total);
+        double threshold = totalDistribution(totalGen);
+        double cumulative = 0;
+        bool centerFound = false;
+        for (int i = 0; i < numProcs && !centerFound; i++)
+        {
+            cumulative += distancesSquared.at(i);
+            if (cumulative >= threshold)
+            {
+                centers.push_back(i);
+                centerFound = true;
+            }
+        }
+    }
+
+    return centers;
+}
+
+bool updateCenterNodes(double* adjacencyMatrix, 
+                       int numProcs, 
+                       int* clusterAssignments, 
+                       int* clusterSizes, 
+                       int numClusters, 
+                       int* clusterCenters)
+{
+    bool changed = false;
+    for (int i = 0; i < numClusters; i++)
+    {
+        int clusterSize = clusterSizes[i];
+        int clusterOffset = 0;
+        double minEnergy = DBL_MAX;
+        int minEnergyNode = -1;
+        for (int j = 0; j < clusterSize; j++)
+        {
+            int possibleCenter = clusterAssignments[clusterOffset + j];
+            double energy = 0.0;
+            for (int k = 0; k < clusterSize; k++)
+            {
+                if (j != k)
+                {
+                    int node = clusterAssignments[clusterOffset + k];
+                    double distance = adjacencyMatrix[node * numProcs + possibleCenter];
+                    energy += distance * distance;
+                }
+            }
+
+            if (energy < minEnergy)
+            {
+                minEnergy = energy;
+                minEnergyNode = possibleCenter;
+            }
+        }
+
+        if (minEnergyNode != clusterCenters[i])
+        {
+            clusterCenters[i] = minEnergyNode;
+            changed = true;
+        }
+        clusterOffset += clusterSize;
     }
 }
 
@@ -205,64 +294,47 @@ int main(int argc, char* argv[])
     }
 
     // k-means++ initilization
-    int numCenters = numNodes * numSockets;
-    int clusterSize = (numNodes * numProcs) / numCenters;
-    std::vector<int> centers;
-    std::vector<int> clusterSizes(numCenters, clusterSize);
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<int>(0, numCenters);
-    while (centers.size() < numCenters)
-    {
-        std::vector<double> distancesSquared;
-        for (int i = 0; i < numProcs; i++)
-        {
-            double minDistance = adjacencyMatrix.at(i * numProcs + centers.at(0));
-            for (int j = 1; j < centers.size(); j++)
-            {
-                double distance = adjacencyMatrix.at(i * numProcs + centers.at(j));
-                if (distance < minDistance)
-                {
-                    minDistance = distance;
-                }
-            }
-
-            distancesSquared.push_back(minDistance * minDistance);
-        }
-
-        double total = std::accumulate(distancesSquared.begin(), distancesSquared.end(), 0.0);
-        std::random_device totalRandom;
-        std::mt19937 totalGen(totalRandom());
-        std::uniform_real_distribution<double> totalDistribution(0, total);
-        double threshold = totalDistribution(totalGen);
-        double cumulative = 0;
-        bool centerFound = false;
-        for (int i = 0; i < numProcs && !centerFound; i++)
-        {
-            cumulative += distancesSquared.at(i);
-            if (cumulative >= threshold)
-            {
-                centers.push_back(i);
-                centerFound = true;
-            }
-        }
-    }
+    std::vector<int> centers = initialize(numNodes, numSockets, numProcs);
 
     // rows are procs, cols are cluster slots
-    double* costMatrix = calculateCostMatrix(centers.size(), centers.data(), clusterSizes.data(), numProcs, adjacencyMatrix.data());
-    int* rowAssignments = (int*) malloc(numProcs * sizeof(int));
-    int* colAssignments = (int*) malloc(numProcs * sizeof(int));
-    for (int i = 0; i < numProcs; i++)
-    {
-        rowAssignments[i] = -1;
-        colAssignments[i] = -1;
-    }
+    int numCenters = numNodes * numSockets;
+    int clusterSize = numProcs / numCenters;
+    std::vector<int> clusterSizes(numCenters, clusterSize);
+    bool changed;
+    int* previousColAssignments = nullptr;
+    do {
+        double* costMatrix = calculateCostMatrix(centers.size(), centers.data(), clusterSizes.data(), numProcs, adjacencyMatrix.data());
+        int* colAssignments = (int*) malloc(numProcs * sizeof(int));
+        for (int i = 0; i < numProcs; i++)
+        {
+            colAssignments[i] = -1;
+        }
 
-    hungarian(costMatrix, numProcs, rowAssignments, colAssignments);
+        hungarian(costMatrix, numProcs, colAssignments);
+        if (previousColAssignments == nullptr) 
+        {
+            previousColAssignments = colAssignments;
+            changed = true;
+        }
+        else
+        {
+            for (int i = 0; i < numProcs; i++)
+            {
+                changed |= previousColAssignments[i] != colAssignments[i];
+            }
+
+            previousColAssignments = colAssignments;
+        }
+
+        changed != updateCenterNodes(adjacencyMatrix, numProcs, colAssignments, clusterSizes.data, numCenters, centers.data());
+
+        free(colAssignments);
+    } while (changed);
+
     printf("Cluster count: %d, Cluster Size: %d\n", numCenters, clusterSize);
     printf("Proc Assignments to cluster slots:\n");
     for (int i = 0; i < numProcs; i++)
     {
-        printf("Proc %d: %d, Check Cluster slot %d: %d\n", i, rowAssignments[i], rowAssignments[i], colAssignments[rowAssignments[i]]);
+        printf("Cluster slot %d: %d\n", i, colAssignments[i]);
     }
 }
