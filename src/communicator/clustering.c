@@ -226,34 +226,27 @@ int findCenter(int* cluster, int clusterSize, double* rankTimes, int num_procs)
 }
 
 // TODO: figure out a hardcoded number of iterations?
-void mahalanobisCluster(int numIterations)
+int* mahalanobisCluster(double* adjacencyMatrix, int rank, int num_procs, int* clusterSize, int* center)
 {
-    int rank, num_procs;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
-    
-    double* rankTimes = network_discovery(rank, num_procs, numIterations);
+    int* cluster = buildClusterForRank(rank, num_procs, adjacencyMatrix, clusterSize);
 
-    int clusterSize;
-    int* cluster = buildClusterForRank(rank, num_procs, rankTimes, &clusterSize);
-
-    qsort(cluster, clusterSize, sizeof(int), compareInts);
+    qsort(cluster, *clusterSize, sizeof(int), compareInts);
 
     bool changed;
     do {
         changed = false;
-        int additionalRanks[num_procs - clusterSize];
+        int additionalRanks[num_procs - *clusterSize];
         int numAdditionalRanks = 0;
-        for (int i = 0; i < clusterSize; i++)
+        for (int i = 0; i < *clusterSize; i++)
         {
             int targetRank = cluster[i];
             int targetClusterSize;
-            int* targetCluster = buildClusterForRank(targetRank, num_procs, rankTimes, &targetClusterSize);
+            int* targetCluster = buildClusterForRank(targetRank, num_procs, adjacencyMatrix, &targetClusterSize);
 
             for (int j = 0; j < targetClusterSize; j++)
             {
                 int targetClusterRank = targetCluster[j];
-                if (!isRankInCluster(targetClusterRank, cluster, clusterSize))
+                if (!isRankInCluster(targetClusterRank, cluster, *clusterSize))
                 {
                     additionalRanks[numAdditionalRanks] = targetClusterRank;
                     numAdditionalRanks++;
@@ -266,13 +259,13 @@ void mahalanobisCluster(int numIterations)
             changed = true;
             for (int i = 0; i < numAdditionalRanks; i++)
             {
-                cluster[clusterSize] = additionalRanks[i];
+                cluster[*clusterSize] = additionalRanks[i];
                 clusterSize++;
             }
 
-            qsort(cluster, clusterSize, sizeof(int), compareInts);
+            qsort(cluster, *clusterSize, sizeof(int), compareInts);
         }
-    } while (changed && clusterSize < num_procs);
+    } while (changed && *clusterSize < num_procs);
 
-    int center = findCenter(cluster, clusterSize, rankTimes, num_procs);
+    *center = findCenter(cluster, *clusterSize, adjacencyMatrix, num_procs);
 }
