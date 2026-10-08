@@ -119,9 +119,9 @@ double standardDeviation(double mean, const ProcDistance* data, int count)
 
 double mahalanobisDistance(int targetRank, const ProcDistance* procDistances)
 {
-    double meanDistance = mean(procDistances, targetRank - 1);
-    double stdDev = standardDeviation(meanDistance, procDistances, targetRank - 1);
-    return (procDistances[targetRank - 1].distance - meanDistance) / stdDev; 
+    double meanDistance = mean(procDistances, targetRank);
+    double stdDev = standardDeviation(meanDistance, procDistances, targetRank);
+    return (procDistances[targetRank].distance - meanDistance) / stdDev; 
 }
 
 int compareProcDistances(const void* a, const void* b)
@@ -129,38 +129,62 @@ int compareProcDistances(const void* a, const void* b)
     ProcDistance procDistanceA = *(const ProcDistance*) a;
     ProcDistance procDistanceB = *(const ProcDistance*) b;
 
-    return procDistanceA.distance - procDistanceB.distance;
+    if (procDistanceA.distance < procDistanceB.distance)
+    {
+        return -1;
+    }
+    else if (procDistanceA.distance > procDistanceB.distance)
+    {
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
 }
 
 int compareInts(const void* a, const void* b)
 {
     int intA = *(const int*) a;
     int intB = *(const int*) b;
-    return intA - intB;
+    if (intA < intB)
+    {
+        return -1;
+    }
+    else if (intA > intB)
+    {
+        return 1;
+    }
+    else 
+    {
+        return 0;
+    }
 }
 
 int* buildClusterForRank(int rank, int num_procs, double* rankTimes, int* clusterSize)
 {
     ProcDistance procDistances[num_procs];
     int rowStart = rank * num_procs;
-    for (int i = rowStart; i < rowStart + num_procs; i++)
+    for (int i = rowStart, j = 0; i < rowStart + num_procs && j < num_procs; i++, j++)
     {
-        procDistances[i] = {i, rankTimes[i]};
+        procDistances[j] = {j, rankTimes[i]};
     }
 
     qsort(procDistances, num_procs, sizeof(ProcDistance), compareProcDistances);
 
-    *clusterSize = 1;
+    *clusterSize = 2;
     double md;
-    int cluster[num_procs];
+    int* cluster = (int*) malloc(num_procs * sizeof(int));
     cluster[0] = rank;
+    cluster[1] = procDistnaces[1].rank;
 
-    int i = 1;
     do {
-        md = mahalanobisDistance(i,  procDistances);
-        cluster[*clusterSize] = procDistances[i].rank;
-        *clusterSize++;      
-        i++;
+        md = mahalanobisDistance(*clusterSize,  procDistances);
+        if (md <= 1.96)
+        {
+            cluster[*clusterSize] = procDistances[*clusterSize].rank;
+            (*clusterSize)++;      
+        }
     } while (md <= 1.96);
 
     for (int i = *clusterSize; i < num_procs; i++)
@@ -225,7 +249,6 @@ int findCenter(int* cluster, int clusterSize, double* rankTimes, int num_procs)
     return center;
 }
 
-// TODO: figure out a hardcoded number of iterations?
 int* mahalanobisCluster(double* adjacencyMatrix, int rank, int num_procs, int* clusterSize, int* center)
 {
     int* cluster = buildClusterForRank(rank, num_procs, adjacencyMatrix, clusterSize);
@@ -235,23 +258,28 @@ int* mahalanobisCluster(double* adjacencyMatrix, int rank, int num_procs, int* c
     bool changed;
     do {
         changed = false;
-        int additionalRanks[num_procs - *clusterSize];
+        int additionalRanks[num_procs - (*clusterSize)];
         int numAdditionalRanks = 0;
         for (int i = 0; i < *clusterSize; i++)
         {
             int targetRank = cluster[i];
-            int targetClusterSize;
-            int* targetCluster = buildClusterForRank(targetRank, num_procs, adjacencyMatrix, &targetClusterSize);
-
-            for (int j = 0; j < targetClusterSize; j++)
+            if (targetRank != rank)
             {
-                int targetClusterRank = targetCluster[j];
-                if (!isRankInCluster(targetClusterRank, cluster, *clusterSize))
+                int targetClusterSize;
+                int* targetCluster = buildClusterForRank(targetRank, num_procs, adjacencyMatrix, &targetClusterSize);
+                for (int j = 0; j < targetClusterSize; j++)
                 {
-                    additionalRanks[numAdditionalRanks] = targetClusterRank;
-                    numAdditionalRanks++;
+                    int targetClusterRank = targetCluster[j];
+                    if (!isRankInCluster(targetClusterRank, cluster, *clusterSize))
+                    {
+                        additionalRanks[numAdditionalRanks] = targetClusterRank;
+                        numAdditionalRanks++;
+                    }
                 }
+
+                free(targetCluster);
             }
+
         }
 
         if (numAdditionalRanks != 0)
@@ -268,4 +296,6 @@ int* mahalanobisCluster(double* adjacencyMatrix, int rank, int num_procs, int* c
     } while (changed && *clusterSize < num_procs);
 
     *center = findCenter(cluster, *clusterSize, adjacencyMatrix, num_procs);
+
+    return cluster;
 }

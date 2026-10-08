@@ -3,7 +3,7 @@
 
 #include "mpix_comm.h"
 
-double* networkDiscovery(int rnak, int num_procs, int num_iterations);
+double* networkDiscovery(int rank, int num_procs, int num_iterations);
 
 int* mahalanobisCluster(double* adjacencyMatrix, int rank, int num_procs, int* clusterSize, int* center);
 
