@@ -161,7 +161,7 @@ int compareInts(const void* a, const void* b)
     }
 }
 
-int* buildClusterForRank(int rank, int num_procs, double* rankTimes, int* clusterSize, int** cluster)
+void buildClusterForRank(int rank, int num_procs, double* rankTimes, int* clusterSize, int** cluster)
 {
     ProcDistance procDistances[num_procs];
     int rowStart = rank * num_procs;
@@ -176,7 +176,7 @@ int* buildClusterForRank(int rank, int num_procs, double* rankTimes, int* cluste
     double md;
     *cluster = (int*) malloc(num_procs * sizeof(int));
     (*cluster)[0] = rank;
-    (*cluster)[1] = procDistnaces[1].rank;
+    (*cluster)[1] = procDistances[1].rank;
 
     do {
         md = mahalanobisDistance(*clusterSize,  procDistances);
@@ -191,8 +191,6 @@ int* buildClusterForRank(int rank, int num_procs, double* rankTimes, int* cluste
     {
         (*cluster)[i] = INT_MAX;
     }
-
-    return cluster;
 }
 
 // Assumes cluster is sorted
@@ -249,7 +247,7 @@ int findCenter(int* cluster, int clusterSize, double* rankTimes, int num_procs)
     return center;
 }
 
-int* mahalanobisCluster(double* adjacencyMatrix, int rank, int num_procs, int* clusterSize, int* center, int** cluster)
+void mahalanobisCluster(double* adjacencyMatrix, int rank, int num_procs, int* clusterSize, int* center, int** cluster)
 {
     buildClusterForRank(rank, num_procs, adjacencyMatrix, clusterSize, cluster);
 
@@ -296,15 +294,13 @@ int* mahalanobisCluster(double* adjacencyMatrix, int rank, int num_procs, int* c
         }
     } while (changed && *clusterSize < num_procs);
 
-    *center = findCenter(cluster, *clusterSize, adjacencyMatrix, num_procs);
+    *center = findCenter(*cluster, *clusterSize, adjacencyMatrix, num_procs);
 
     int* temp = (int*) realloc(*cluster, (*clusterSize) * sizeof(int));
     if (temp != NULL)
     {
         *cluster = temp;
     }
-
-    return cluster;
 }
 
 void extendCluster(int rank, int numProcs, int startingPoint, ProcDistance* procDistances, int** cluster, int* clusterSize)
@@ -319,7 +315,7 @@ void extendCluster(int rank, int numProcs, int startingPoint, ProcDistance* proc
 
     double previousMd = mahalanobisDistance(startingPoint, procDistances);
     double currentMd = previousMd;
-    while (startinPoint < numProcs && (currentMd <= previousMd || currentMd <= 1.96))
+    while (startingPoint < numProcs && (currentMd <= previousMd || currentMd <= 1.96))
     {
         (*cluster)[startingPoint] = procDistances[startingPoint].rank;
         startingPoint++;
@@ -341,7 +337,7 @@ int** fullCommunicatorCluster(double* adjacencyMatrix, int rank, int num_procs, 
     int rowStart = rank * num_procs;
     for (int i = rowStart, j = 0; i < rowStart + num_procs && j < num_procs; i++, j++)
     {
-        procDistances[j] = (ProcDistance*){j, adjacencyMatrix[i]};
+        procDistances[j] = (ProcDistance){j, adjacencyMatrix[i]};
     }
 
     qsort(procDistances, num_procs, sizeof(ProcDistance), compareProcDistances);
