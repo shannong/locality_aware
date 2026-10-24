@@ -18,34 +18,34 @@ int mod(int a, int m)
     return ((a % m) + m) % m;
 }
 
-double pingpong(float* buffer, int rank, int proc, int tag, int n_iter)
+double pingpong(char* buffer, int rank, int proc, int tag, int n_iter, int size)
 {
     double t0 = MPI_Wtime();
     if (rank < proc)
     {
         for (int i = 0; i < n_iter; i++)
         {
-            MPI_Send(buffer, 1, MPI_FLOAT, proc, tag, MPI_COMM_WORLD);
-            MPI_Recv(buffer, 1, MPI_FLOAT, proc, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Send(buffer, size, MPI_CHAR, proc, tag, MPI_COMM_WORLD);
+            MPI_Recv(buffer, size, MPI_CHAR, proc, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
     }
     else
     {
         for (int i = 0; i < n_iter; i++)
         {
-            MPI_Recv(buffer, 1, MPI_FLOAT, proc, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Send(buffer, 1, MPI_FLOAT, proc, tag, MPI_COMM_WORLD);
+            MPI_Recv(buffer, size, MPI_CHAR, proc, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Send(buffer, size, MPI_CHAR, proc, tag, MPI_COMM_WORLD);
         }
     }
 
     double tfinal = (MPI_Wtime() - t0) / n_iter;
-    
+
     return tfinal;
 }
 
-double* network_discovery(int rank, int num_procs, int num_iterations)
+double* network_discovery(int rank, int num_procs, int num_iterations, int size)
 {
-    float buf;
+    char* buf = (char*) malloc(size * sizeof(char));
     int proc, pos;
     int tag = 0;
     
@@ -83,14 +83,15 @@ double* network_discovery(int rank, int num_procs, int num_iterations)
 
         if (proc < num_procs)
         {
-            double t0 = pingpong(&buf, rank, proc, tag, 1);
-            double time = pingpong(&buf, rank, proc, tag, num_iterations);
+            double t0 = pingpong(buf, rank, proc, tag, 1, size);
+            double time = pingpong(buf, rank, proc, tag, num_iterations, size);
             times[proc] = time;
         }
 
         tag++;
     }
 
+    free(buf);
     return times;
 }
 
