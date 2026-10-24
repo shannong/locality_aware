@@ -43,7 +43,7 @@ double pingpong(char* buffer, int rank, int proc, int tag, int n_iter, int size)
     return tfinal;
 }
 
-double* network_discovery(int rank, int num_procs, int num_iterations, int size)
+double* networkDiscovery(int rank, int num_procs, int num_iterations, int size)
 {
     char* buf = (char*) malloc(size * sizeof(char));
     int proc, pos;
@@ -173,20 +173,26 @@ void buildClusterForRank(int rank, int num_procs, double* rankTimes, int* cluste
 
     qsort(procDistances, num_procs, sizeof(ProcDistance), compareProcDistances);
 
-    *clusterSize = 2;
-    double md;
     *cluster = (int*) malloc(num_procs * sizeof(int));
+    *clusterSize = num_procs < 2 ? num_procs : 2;
     (*cluster)[0] = rank;
-    (*cluster)[1] = procDistances[1].rank;
+    if (*clusterSize == 1)
+    {
+        return;
+    }
 
-    do {
-        md = mahalanobisDistance(*clusterSize,  procDistances);
-        if (md <= 1.96)
+    (*cluster)[1] = procDistances[1].rank;
+    while (*clusterSize < num_procs)
+    {
+        double md = mahalanobisDistance(*clusterSize, procDistances);
+        if (!(md <= 1.96))
         {
-            (*cluster)[*clusterSize] = procDistances[*clusterSize].rank;
-            (*clusterSize)++;      
+            break;
         }
-    } while (md <= 1.96);
+
+        (*cluster)[*clusterSize] = procDistances[*clusterSize].rank;
+        (*clusterSize)++;
+    }
 
     for (int i = *clusterSize; i < num_procs; i++)
     {
@@ -234,14 +240,14 @@ int findCenter(int* cluster, int clusterSize, double* rankTimes, int num_procs)
         double energy = 0.0;
         for (int j = 0; j < clusterSize; j++)
         {
-            double distance = rankTimes[i * num_procs + j];
+            double distance = rankTimes[cluster[i] * num_procs + cluster[j]];
             energy += distance * distance;
         }
 
         if (energy < minEnergy)
         {
             minEnergy = energy;
-            center = i;
+            center = cluster[i];
         }
     }
 
@@ -257,7 +263,7 @@ void mahalanobisCluster(double* adjacencyMatrix, int rank, int num_procs, int* c
     bool changed;
     do {
         changed = false;
-        int additionalRanks[num_procs - (*clusterSize)];
+        int additionalRanks[num_procs];
         int numAdditionalRanks = 0;
         for (int i = 0; i < *clusterSize; i++)
         {
@@ -270,7 +276,19 @@ void mahalanobisCluster(double* adjacencyMatrix, int rank, int num_procs, int* c
                 for (int j = 0; j < targetClusterSize; j++)
                 {
                     int targetClusterRank = targetCluster[j];
-                    if (!isRankInCluster(targetClusterRank, *cluster, *clusterSize))
+                    bool alreadyPending = false;
+                    for (int k = 0; k < numAdditionalRanks; k++)
+                    {
+                        if (additionalRanks[k] == targetClusterRank)
+                        {
+                            alreadyPending = true;
+                            break;
+                        }
+                    }
+
+                    if (!isRankInCluster(targetClusterRank, *cluster, *clusterSize)
+                        && !alreadyPending
+                        && numAdditionalRanks < num_procs - *clusterSize)
                     {
                         additionalRanks[numAdditionalRanks] = targetClusterRank;
                         numAdditionalRanks++;
@@ -288,10 +306,10 @@ void mahalanobisCluster(double* adjacencyMatrix, int rank, int num_procs, int* c
             for (int i = 0; i < numAdditionalRanks; i++)
             {
                 (*cluster)[*clusterSize] = additionalRanks[i];
-                clusterSize++;
+                (*clusterSize)++;
             }
 
-            qsort(cluster, *clusterSize, sizeof(int), compareInts);
+            qsort(*cluster, *clusterSize, sizeof(int), compareInts);
         }
     } while (changed && *clusterSize < num_procs);
 
@@ -314,15 +332,24 @@ void extendCluster(int rank, int numProcs, int startingPoint, ProcDistance* proc
 
     *clusterSize = startingPoint;
 
-    double previousMd = mahalanobisDistance(startingPoint, procDistances);
-    double currentMd = previousMd;
-    while (startingPoint < numProcs && (currentMd <= previousMd || currentMd <= 1.96))
+    if (startingPoint >= numProcs)
     {
+        return;
+    }
+
+    double previousMd = mahalanobisDistance(startingPoint, procDistances);
+    while (startingPoint < numProcs)
+    {
+        double currentMd = mahalanobisDistance(startingPoint, procDistances);
+        if (!(currentMd <= previousMd || currentMd <= 1.96))
+        {
+            break;
+        }
+
         (*cluster)[startingPoint] = procDistances[startingPoint].rank;
         startingPoint++;
         (*clusterSize)++;
         previousMd = currentMd;
-        currentMd = mahalanobisDistance(startingPoint, procDistances);
     }
 
     int* temp = (int*) realloc(*cluster, (*clusterSize) * sizeof(int));
@@ -347,16 +374,18 @@ int** fullCommunicatorCluster(double* adjacencyMatrix, int rank, int num_procs, 
 
     int** clusters = (int**) malloc(maxNumClusters * sizeof(int*));
     *clusterSizes = (int*) malloc(maxNumClusters * sizeof(int));
+    *centers = (int*) malloc(maxNumClusters * sizeof(int));
 
     int startingPoint = 0;
     *numClusters = 1;
 
-    mahalanobisCluster(adjacencyMatrix, rank, num_procs, clusterSizes[0], centers[0], clusters);
+    mahalanobisCluster(adjacencyMatrix, rank, num_procs, &(*clusterSizes)[0], &(*centers)[0], &clusters[0]);
     startingPoint = (*clusterSizes)[0];
 
     while (startingPoint < num_procs)
     {
         extendCluster(rank, num_procs, startingPoint, procDistances, &clusters[*numClusters], &(*clusterSizes)[*numClusters]);
+        (*centers)[*numClusters] = findCenter(clusters[*numClusters], (*clusterSizes)[*numClusters], adjacencyMatrix, num_procs);
         startingPoint += (*clusterSizes)[*numClusters];
         (*numClusters)++;
     }

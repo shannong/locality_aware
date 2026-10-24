@@ -10,6 +10,7 @@ list(APPEND CPP_SOURCES "p2p_alltoallv.cpp")
 list(APPEND CPP_SOURCES "allreduce_topology.cpp")
 list(APPEND CPP_SOURCES "allgather_topology.cpp")
 list(APPEND CPP_SOURCES "network_discovery.cpp")
+list(APPEND CPP_SOURCES "clustering.cpp")
 
 ## But some need special requirements
 if(USE_GPU)
